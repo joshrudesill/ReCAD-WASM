@@ -3,6 +3,7 @@
 use wasm_bindgen::prelude::*;
 use js_sys::Float32Array;
 use js_sys::Array;
+use js_sys::Reflect;
 
 
 pub struct XY_global {
@@ -16,6 +17,19 @@ pub struct NormalizedBox {
     t_L: XY_global,
     t_R: XY_global
 }
+#[wasm_bindgen]
+#[derive(Clone)]
+pub struct Geometry {
+    sx: f32,
+    sy: f32,
+    ex: f32,
+    ey: f32,
+}
+#[wasm_bindgen]
+pub struct RealGeometry {
+    geometry: Vec<Geometry>
+}
+
 
 impl NormalizedBox {
     fn new() {}
@@ -48,13 +62,21 @@ pub fn return_jsarr(arr: &Float32Array) -> Float32Array {
 }
 
 #[wasm_bindgen] 
-pub fn check_geo_collision(sel_box: &Float32Array, real_geo: &Array<>) {
+pub fn check_geo_collision(sel_box: &Float32Array, real_geo: &Array) {
     // First lets normalize the selection box
     // Allocating
     let mut sel_arr: [f32; 4] = [ 0.0; 4 ];
-    let geo: Vec<f32> = vec![0.0; real_geo.length() as usize];
+    let geo: Vec<Geometry> = vec![Geometry {sx: 0.0, sy: 0.0, ex: 0.0, ey: 0.0}; real_geo.length() as usize];
 
     // Copying
-    Float32Array::copy_to(sel_box, &mut sel_arr[..]);
+    Float32Array::copy_to(sel_box, &mut sel_arr);
+    real_geo.for_each(&mut |v, _, _| {
+        let f: Option<f64> = v.as_f64();
+        if f.is_some() {
+            
+        }
+        
+    });
+    
 }
 
