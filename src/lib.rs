@@ -30,6 +30,63 @@ pub struct BoxSides {
     t: (XY_global, XY_global),
     r: (XY_global, XY_global),
 }
+#[derive(Debug, Clone)]
+pub struct Polygon {
+    center: XY_global,
+    end: XY_global,
+    n_sides: u8,
+    side_points: Vec<(XY_global, XY_global)>,
+}
+
+impl Polygon {
+    fn new(center_x: f32, center_y: f32, end_x: f32, end_y: f32, n_sides: u8) -> Self {
+        let mut side_points: Vec<(XY_global, XY_global)> = Vec::new();
+        let y = (center_y as f64) - (end_y as f64);
+        let x = (center_x as f64) - (end_x as f64);
+
+        // Constants, rotation_in_rads can be reassigned once
+        let mut rotation_in_rads: f64 = y.atan2(x);
+
+        let polygon_radius: f32 = get_distance_4p(center_x, center_y, end_x, end_y);
+        let rad_interval: f64 = (2.0 * std::f64::consts::PI) / (n_sides as f64);
+
+        if n_sides % 2 != 0 {
+            rotation_in_rads += ((std::f64::consts::PI * 2.0) / (n_sides as f64)) * 0.5;
+        }
+
+        let mut prev_point: XY_global = XY_global { x: end_x, y: end_y };
+
+        for i in 1..=n_sides {
+            let next_rad: f64 = rad_interval * (i as f64) + rotation_in_rads;
+            let out: XY_global = XY_global {
+                x: center_x + polygon_radius * (next_rad.cos() as f32),
+                y: center_y + polygon_radius * (next_rad.sin() as f32),
+            };
+            if i == n_sides {
+                // Last iteration, bug here
+                side_points.push((out, XY_global { x: end_x, y: end_y }));
+            } else {
+                side_points.push((prev_point, out));
+            }
+            prev_point = out;
+        }
+        Self {
+            center: XY_global { x: center_x, y: center_y },
+            end: XY_global { x: end_x, y: end_y },
+            n_sides: n_sides,
+            side_points: side_points,
+        }
+    }
+}
+
+pub struct CircleQuadrants {
+    center: XY_global,
+    top: XY_global,
+    right: XY_global,
+    left: XY_global,
+    bottom: XY_global,
+}
+
 impl BoxSides {
     fn new(s: &NormalizedBox) -> Self {
         Self {
@@ -281,6 +338,102 @@ pub fn check_rect_collision(
 
     return false;
 }
+
+#[wasm_bindgen]
+pub fn check_circle_collision(
+    bsx: f32,
+    bsy: f32,
+    bex: f32,
+    bey: f32,
+    gsx: f32,
+    gsy: f32,
+    gex: f32,
+    gey: f32
+) -> bool {
+    // Can possibly edit to exclude circle centers triggering
+    let n_box = NormalizedBox::new(bsx, bsy, bex, bey);
+    let NormalizedBox { b_L, b_R, t_L, t_R } = n_box;
+    let n_box_arr: [XY_global; 4] = [b_L, b_R, t_L, t_R];
+
+    if is_between(b_L.x, b_R.x, gsx) && is_between(b_L.y, t_L.y, gsy) {
+        // Possibly check for selection box width / height to be greater than radius to ensure box crosses circle circumference
+        return true;
+    }
+
+    let circle_radius: f32 = get_distance_4p(gsx, gsy, gex, gey);
+
+    for box_point in n_box_arr {
+        let distance_to_center = get_distance_4p(gsx, gsy, box_point.x, box_point.y);
+        if distance_to_center < circle_radius {
+            return true;
+        }
+    }
+
+    let box_sides: BoxSides = BoxSides::new(&n_box);
+    let s_side_arr: [(XY_global, XY_global); 4] = [
+        box_sides.b,
+        box_sides.r,
+        box_sides.l,
+        box_sides.t,
+    ];
+    let circle_quads: CircleQuadrants = CircleQuadrants {
+        center: XY_global { x: gsx, y: gsy },
+        top: XY_global { x: gsx, y: gsy + circle_radius },
+        bottom: XY_global { x: gsx, y: gsy - circle_radius },
+        right: XY_global { x: gsx + circle_radius, y: gsy },
+        left: XY_global { x: gsx - circle_radius, y: gsy },
+    };
+    let circle_quad_arr: [XY_global; 4] = [
+        circle_quads.top,
+        circle_quads.bottom,
+        circle_quads.left,
+        circle_quads.right,
+    ];
+
+    for box_side in s_side_arr {
+        for quad_line in circle_quad_arr {
+            if check_line_intersect((circle_quads.center, quad_line), box_side) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+#[wasm_bindgen]
+pub fn check_polygon_collision(
+    bsx: f32,
+    bsy: f32,
+    bex: f32,
+    bey: f32,
+    gsx: f32,
+    gsy: f32,
+    gex: f32,
+    gey: f32,
+    sides: u8
+) -> bool {
+    let polygon: Polygon = Polygon::new(gsx, gsy, gex, gey, sides);
+    console_log!("{:?}", polygon.side_points);
+    let n_box: NormalizedBox = NormalizedBox::new(bsx, bsy, bex, bey);
+    let NormalizedBox { b_L, b_R, t_L, t_R } = n_box;
+    let box_sides: BoxSides = BoxSides::new(&n_box);
+    let s_side_arr: [(XY_global, XY_global); 4] = [
+        box_sides.b,
+        box_sides.r,
+        box_sides.l,
+        box_sides.t,
+    ];
+    for box_side in s_side_arr {
+        for poly_side in &polygon.side_points[..] {
+            if check_line_intersect(*poly_side, box_side) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 fn is_between(n1: f32, n2: f32, between: f32) -> bool {
     if between >= n1 && between <= n2 {
         return true;
