@@ -35,12 +35,14 @@ pub struct Polygon {
     center: XY_global,
     end: XY_global,
     n_sides: u8,
-    side_points: Vec<(XY_global, XY_global)>,
+    side_points: Vec<XY_global>,
+    side_lines: Vec<(XY_global, XY_global)>,
 }
 
 impl Polygon {
     fn new(center_x: f32, center_y: f32, end_x: f32, end_y: f32, n_sides: u8) -> Self {
-        let mut side_points: Vec<(XY_global, XY_global)> = Vec::new();
+        let mut side_points: Vec<XY_global> = Vec::new();
+        let mut side_lines: Vec<(XY_global, XY_global)> = Vec::new();
         let y = (center_y as f64) - (end_y as f64);
         let x = (center_x as f64) - (end_x as f64);
 
@@ -54,27 +56,37 @@ impl Polygon {
             rotation_in_rads += ((std::f64::consts::PI * 2.0) / (n_sides as f64)) * 0.5;
         }
 
-        let mut prev_point: XY_global = XY_global { x: end_x, y: end_y };
-
         for i in 1..=n_sides {
             let next_rad: f64 = rad_interval * (i as f64) + rotation_in_rads;
             let out: XY_global = XY_global {
                 x: center_x + polygon_radius * (next_rad.cos() as f32),
                 y: center_y + polygon_radius * (next_rad.sin() as f32),
             };
-            if i == n_sides {
-                // Last iteration, bug here
-                side_points.push((out, XY_global { x: end_x, y: end_y }));
+            side_points.push(out);
+        }
+
+        for i in 0..n_sides {
+            if i == n_sides - 1 {
+                // Last iteration
+                let first_out: XY_global = *side_points.get(i as usize).unwrap();
+
+                let second_out: XY_global = *side_points.get(0).unwrap();
+
+                side_lines.push((first_out, second_out));
             } else {
-                side_points.push((prev_point, out));
+                let first_out: XY_global = *side_points.get(i as usize).unwrap();
+
+                let second_out: XY_global = *side_points.get((i as usize) + (1 as usize)).unwrap();
+
+                side_lines.push((first_out, second_out));
             }
-            prev_point = out;
         }
         Self {
             center: XY_global { x: center_x, y: center_y },
             end: XY_global { x: end_x, y: end_y },
             n_sides: n_sides,
             side_points: side_points,
+            side_lines: side_lines,
         }
     }
 }
@@ -354,17 +366,22 @@ pub fn check_circle_collision(
     let n_box = NormalizedBox::new(bsx, bsy, bex, bey);
     let NormalizedBox { b_L, b_R, t_L, t_R } = n_box;
     let n_box_arr: [XY_global; 4] = [b_L, b_R, t_L, t_R];
-
-    if is_between(b_L.x, b_R.x, gsx) && is_between(b_L.y, t_L.y, gsy) {
+    let circle_radius: f32 = get_distance_4p(gsx, gsy, gex, gey);
+    if
+        is_between(b_L.x, b_R.x, gsx) &&
+        is_between(b_L.y, t_L.y, gsy) &&
+        (circle_radius < (b_L.x - b_R.x).abs() || circle_radius < (b_L.y - t_R.y).abs())
+    {
         // Possibly check for selection box width / height to be greater than radius to ensure box crosses circle circumference
         return true;
     }
 
-    let circle_radius: f32 = get_distance_4p(gsx, gsy, gex, gey);
-
     for box_point in n_box_arr {
         let distance_to_center = get_distance_4p(gsx, gsy, box_point.x, box_point.y);
-        if distance_to_center < circle_radius {
+        if
+            distance_to_center < circle_radius &&
+            (circle_radius < (b_L.x - b_R.x).abs() || circle_radius < (b_L.y - t_R.y).abs())
+        {
             return true;
         }
     }
@@ -414,18 +431,30 @@ pub fn check_polygon_collision(
     sides: u8
 ) -> bool {
     let polygon: Polygon = Polygon::new(gsx, gsy, gex, gey, sides);
-    console_log!("{:?}", polygon.side_points);
+
     let n_box: NormalizedBox = NormalizedBox::new(bsx, bsy, bex, bey);
     let NormalizedBox { b_L, b_R, t_L, t_R } = n_box;
+
+    if
+        is_between(b_L.x, b_R.x, gsx) &&
+        is_between(b_L.y, t_L.y, gsy) &&
+        (get_distance_4p(gsx, gsy, gex, gey) < (b_L.x - b_R.x).abs() ||
+            get_distance_4p(gsx, gsy, gex, gey) < (b_L.y - t_R.y).abs())
+    {
+        return true;
+    }
+
     let box_sides: BoxSides = BoxSides::new(&n_box);
+
     let s_side_arr: [(XY_global, XY_global); 4] = [
         box_sides.b,
         box_sides.r,
         box_sides.l,
         box_sides.t,
     ];
+
     for box_side in s_side_arr {
-        for poly_side in &polygon.side_points[..] {
+        for poly_side in &polygon.side_lines[..] {
             if check_line_intersect(*poly_side, box_side) {
                 return true;
             }
