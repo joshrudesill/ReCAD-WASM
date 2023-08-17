@@ -463,6 +463,54 @@ pub fn check_polygon_collision(
     return false;
 }
 
+pub fn find_circle_tan_points(
+    circle_center_x: f32,
+    circle_center_y: f32,
+    circle_radius: f32,
+    point_x: f32,
+    point_y: f32
+) -> Array {
+    let out: Array = Array::new_with_length(4);
+    let center_point: XY_global = XY_global {
+        x: (circle_center_x + point_x) / 2.0,
+        y: (circle_center_y + point_y) / 2.0,
+    };
+    let dx: f32 = circle_center_x - center_point.x;
+    let dy: f32 = circle_center_y - center_point.y;
+    let distance_between_centers = get_distance_4p(
+        circle_center_x,
+        circle_center_y,
+        center_point.x,
+        center_point.y
+    );
+
+    let a: f32 =
+        ((circle_radius.powf(2.0) -
+            distance_between_centers.powf(2.0) +
+            distance_between_centers.powf(2.0)) /
+            2.0) * // h
+        distance_between_centers;
+
+    let x2: f32 = circle_center_x + dx * (a / distance_between_centers);
+    let y2: f32 = circle_center_y + dy * (a / distance_between_centers);
+
+    let h: f32 = (circle_radius.powf(2.0) - a.powf(2.0)).sqrt();
+
+    let rx: f32 = -dy * (h / distance_between_centers);
+    let ry: f32 = dx * (h / distance_between_centers);
+
+    let x0 = (x2 + rx) as f64;
+    let y0 = (y2 + ry) as f64;
+    let x1 = (x2 - rx) as f64;
+    let y1 = (y2 - ry) as f64;
+
+    out.push(&JsValue::from_f64(x0));
+    out.push(&JsValue::from_f64(y0));
+    out.push(&JsValue::from_f64(x1));
+    out.push(&JsValue::from_f64(y1));
+    return out;
+}
+
 fn is_between(n1: f32, n2: f32, between: f32) -> bool {
     if between >= n1 && between <= n2 {
         return true;
