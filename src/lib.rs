@@ -462,7 +462,7 @@ pub fn check_polygon_collision(
     }
     return false;
 }
-
+#[wasm_bindgen]
 pub fn find_circle_tan_points(
     circle_center_x: f32,
     circle_center_y: f32,
@@ -470,13 +470,13 @@ pub fn find_circle_tan_points(
     point_x: f32,
     point_y: f32
 ) -> Array {
-    let out: Array = Array::new_with_length(4);
+    let out: Array = Array::new();
     let center_point: XY_global = XY_global {
         x: (circle_center_x + point_x) / 2.0,
         y: (circle_center_y + point_y) / 2.0,
     };
-    let dx: f32 = circle_center_x - center_point.x;
-    let dy: f32 = circle_center_y - center_point.y;
+    let dx: f32 = center_point.x - circle_center_x;
+    let dy: f32 = center_point.y - circle_center_y;
     let distance_between_centers = get_distance_4p(
         circle_center_x,
         circle_center_y,
@@ -485,16 +485,15 @@ pub fn find_circle_tan_points(
     );
 
     let a: f32 =
-        ((circle_radius.powf(2.0) -
-            distance_between_centers.powf(2.0) +
-            distance_between_centers.powf(2.0)) /
-            2.0) * // h
-        distance_between_centers;
+        circle_radius.powf(2.0) -
+        distance_between_centers.powf(2.0) +
+        distance_between_centers.powf(2.0);
+    let a: f32 = a / (2.0 * distance_between_centers);
 
     let x2: f32 = circle_center_x + dx * (a / distance_between_centers);
     let y2: f32 = circle_center_y + dy * (a / distance_between_centers);
 
-    let h: f32 = (circle_radius.powf(2.0) - a.powf(2.0)).sqrt();
+    let h: f32 = (circle_radius.powf(2.0) - a.powf(2.0)).abs().sqrt();
 
     let rx: f32 = -dy * (h / distance_between_centers);
     let ry: f32 = dx * (h / distance_between_centers);
@@ -503,7 +502,12 @@ pub fn find_circle_tan_points(
     let y0 = (y2 + ry) as f64;
     let x1 = (x2 - rx) as f64;
     let y1 = (y2 - ry) as f64;
-
+    console_log!("a: {:?}", a);
+    console_log!("x2: {:?}", x2);
+    console_log!("y2: {:?}", y2);
+    console_log!("h: {:?}", h);
+    console_log!("rx: {:?}", rx);
+    console_log!("ry: {:?}", ry);
     out.push(&JsValue::from_f64(x0));
     out.push(&JsValue::from_f64(y0));
     out.push(&JsValue::from_f64(x1));
