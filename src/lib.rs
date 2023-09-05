@@ -498,21 +498,36 @@ pub fn find_circle_tan_points(
     let rx: f32 = -dy * (h / distance_between_centers);
     let ry: f32 = dx * (h / distance_between_centers);
 
-    let x0 = (x2 + rx) as f64;
-    let y0 = (y2 + ry) as f64;
-    let x1 = (x2 - rx) as f64;
-    let y1 = (y2 - ry) as f64;
-    console_log!("a: {:?}", a);
-    console_log!("x2: {:?}", x2);
-    console_log!("y2: {:?}", y2);
-    console_log!("h: {:?}", h);
-    console_log!("rx: {:?}", rx);
-    console_log!("ry: {:?}", ry);
+    let x0: f64 = (x2 + rx) as f64;
+    let y0: f64 = (y2 + ry) as f64;
+    let x1: f64 = (x2 - rx) as f64;
+    let y1: f64 = (y2 - ry) as f64;
+
     out.push(&JsValue::from_f64(x0));
     out.push(&JsValue::from_f64(y0));
     out.push(&JsValue::from_f64(x1));
     out.push(&JsValue::from_f64(y1));
     return out;
+}
+
+#[wasm_bindgen]
+pub fn rotate_point(ptr_x: f32, ptr_y: f32, center_x: f32, center_y: f32, angle: f32) -> Array {
+    let out: Array = Array::new();
+    let a_cos: f32 = angle.cos();
+    let a_sin: f32 = angle.sin();
+
+    let d_cos_x: f32 = a_cos * (ptr_x - center_x);
+    let d_sin_x: f32 = a_sin * (ptr_x - center_x);
+    let d_cos_y: f32 = a_cos * (ptr_y - center_y);
+    let d_sin_y: f32 = a_sin * (ptr_y - center_y);
+
+    let new_x: f32 = d_cos_x - d_sin_y + center_x;
+    let new_y: f32 = d_sin_x + d_cos_y + center_y;
+
+    out.push(&JsValue::from_f64(new_x as f64));
+    out.push(&JsValue::from_f64(new_y as f64));
+
+    return out; // x,y
 }
 
 fn is_between(n1: f32, n2: f32, between: f32) -> bool {
