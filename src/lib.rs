@@ -529,7 +529,116 @@ pub fn rotate_point(ptr_x: f32, ptr_y: f32, center_x: f32, center_y: f32, angle:
 
     return out; // x,y
 }
+#[wasm_bindgen]
+pub fn check_quadratic_curve_intersect(
+    bsx: f32,
+    bsy: f32,
+    bex: f32,
+    bey: f32,
+    c_sx: f32,
+    c_sy: f32,
+    c_mx: f32,
+    c_my: f32,
+    c_ex: f32,
+    c_ey: f32
+) -> bool {
+    let n_box: NormalizedBox = NormalizedBox::new(bsx, bsy, bex, bey);
+    let NormalizedBox { b_L, b_R, t_L, t_R } = n_box;
+    let p1 = XY_global { x: c_sx, y: c_sy };
+    let p2 = XY_global { x: c_mx, y: c_my };
+    let p3 = XY_global { x: c_ex, y: c_ey };
+    let box_sides: BoxSides = BoxSides::new(&n_box);
 
+    let s_side_arr: [(XY_global, XY_global); 4] = [
+        box_sides.b,
+        box_sides.r,
+        box_sides.l,
+        box_sides.t,
+    ];
+    for box_side in s_side_arr {
+        if check_qcurve_line_intersect(p1, p2, p3, box_side.0, box_side.1) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn check_qcurve_line_intersect(
+    p1: XY_global,
+    p2: XY_global,
+    p3: XY_global,
+    a1: XY_global,
+    a2: XY_global
+) -> bool {
+    let inverse_normal: XY_global = XY_global {
+        x: a1.y - a2.y,
+        y: a2.x - a1.x,
+    };
+
+    // Quadratic Coefficients
+    let c2 = XY_global {
+        x: p1.x + p2.x * -2.0 + p3.x,
+        y: p1.y + p2.y * -2.0 + p3.y,
+    };
+    let c1 = XY_global {
+        x: p1.x * -2.0 + p2.x * 2.0,
+        y: p1.y * -2.0 + p2.y * 2.0,
+    };
+    let c0 = XY_global {
+        x: p1.x,
+        y: p1.y,
+    };
+
+    let coefficient = a1.x * a2.y - a2.x * a1.y;
+    let a = inverse_normal.x * c2.x + inverse_normal.y * c2.y;
+    let b = (inverse_normal.x * c1.x + inverse_normal.y * c1.y) / a;
+    let c = (inverse_normal.x * c0.x + inverse_normal.y * c0.y + coefficient) / a;
+
+    let mut roots: Vec<f32> = Vec::new();
+    let d = b * b - 4.0 * c;
+
+    if d > f32::EPSILON {
+        let out1 = (-b + d.sqrt()) / 2.0;
+        let out2 = (-b - d.sqrt()) / 2.0;
+        roots.push(out1);
+        roots.push(out2);
+    } else if d == f32::EPSILON {
+        let out = -b / 2.0;
+        roots.push(out);
+    }
+
+    let minX = a1.x.min(a2.x);
+    let minY = a1.y.min(a2.y);
+    let maxX = a1.x.max(a2.x);
+    let maxY = a1.y.max(a2.y);
+
+    for i in 0..roots.len() {
+        let t: f32 = *roots.get(i).unwrap();
+
+        if t >= f32::EPSILON && t <= 1.0 {
+            let point = XY_global {
+                x: lerp(lerp(p1.x, p2.x, t), lerp(p2.x, p3.x, t), t),
+                y: lerp(lerp(p1.y, p2.y, t), lerp(p2.y, p3.y, t), t),
+            };
+
+            if a1.x == a2.x && point.y >= minY && point.y <= maxY {
+                return true;
+            }
+            if a1.y == a2.y && point.x >= minX && point.x <= maxX {
+                return true;
+            }
+            if point.x >= minX && point.y >= minY && point.x <= maxX && point.y <= maxY {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+fn lerp(a: f32, b: f32, x: f32) -> f32 {
+    a + x * (b - a)
+}
 fn is_between(n1: f32, n2: f32, between: f32) -> bool {
     if between >= n1 && between <= n2 {
         return true;
