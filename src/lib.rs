@@ -213,25 +213,6 @@ pub fn return_jsarr(arr: &Float32Array) -> Float32Array {
     Float32Array::from(&out[..])
 }
 
-#[wasm_bindgen]
-pub fn check_geo_collision(sel_box: &Float32Array, real_geo: &Array) {
-    // First lets normalize the selection box
-    // Allocating
-    let mut sel_arr: [f32; 4] = [0.0; 4];
-    let geo: Vec<Geometry> =
-        vec![Geometry {sx: 0.0, sy: 0.0, ex: 0.0, ey: 0.0}; real_geo.length() as usize];
-
-    // Copying
-    Float32Array::copy_to(sel_box, &mut sel_arr);
-    real_geo.for_each(
-        &mut (|v, _, _| {
-            let f: Option<f64> = v.as_f64();
-            if f.is_some() {
-            }
-        })
-    );
-}
-
 fn check_line_intersect(f_line: (XY_global, XY_global), s_line: (XY_global, XY_global)) -> bool {
     let (s, e) = f_line;
     let (fs, fe) = s_line;
@@ -367,21 +348,14 @@ pub fn check_circle_collision(
     let NormalizedBox { b_L, b_R, t_L, t_R } = n_box;
     let n_box_arr: [XY_global; 4] = [b_L, b_R, t_L, t_R];
     let circle_radius: f32 = get_distance_4p(gsx, gsy, gex, gey);
-    if
-        is_between(b_L.x, b_R.x, gsx) &&
-        is_between(b_L.y, t_L.y, gsy) &&
-        (circle_radius < (b_L.x - b_R.x).abs() || circle_radius < (b_L.y - t_R.y).abs())
-    {
+    if is_between(b_L.x, b_R.x, gsx) && is_between(b_L.y, t_L.y, gsy) {
         // Possibly check for selection box width / height to be greater than radius to ensure box crosses circle circumference
         return true;
     }
 
     for box_point in n_box_arr {
         let distance_to_center = get_distance_4p(gsx, gsy, box_point.x, box_point.y);
-        if
-            distance_to_center < circle_radius &&
-            (circle_radius < (b_L.x - b_R.x).abs() || circle_radius < (b_L.y - t_R.y).abs())
-        {
+        if distance_to_center < circle_radius {
             return true;
         }
     }
@@ -636,11 +610,163 @@ fn check_qcurve_line_intersect(
     return false;
 }
 
+#[wasm_bindgen]
+pub fn check_cap_collision(
+    bsx: f32,
+    bsy: f32,
+    bex: f32,
+    bey: f32,
+    gsx: f32,
+    gsy: f32,
+    gex: f32,
+    gey: f32
+) -> bool {
+    let n_box = NormalizedBox::new(bsx, bsy, bex, bey);
+    let NormalizedBox { b_L, b_R, t_L, t_R } = n_box;
+    let n_box_arr: [XY_global; 4] = [b_L, b_R, t_L, t_R];
+    let circle_radius: f32 = get_distance_4p(gsx, gsy, gex, gey) / 2.0;
+
+    // Starting point inside box, select cap
+    if is_between(b_L.x, b_R.x, gsx) && is_between(b_L.y, t_L.y, gsy) {
+        console_log!("Starting point inside box");
+        return true;
+    }
+    // Ending point inside box, select cap
+    if is_between(b_L.x, b_R.x, gex) && is_between(b_L.y, t_L.y, gey) {
+        console_log!("ending point inside box");
+        return true;
+    }
+
+    // Get angle of center -> start and center -> end, then check against that so that you cant just select on the other side of the cap and meet the center distance requirement
+    let center = XY_global {
+        x: (gsx + gex) / 2.0,
+        y: (gsy + gey) / 2.0,
+    };
+    let radius = get_distance_4p(center.x, center.y, gsx, gsy);
+    let y = (center.y - gsy) as f64;
+    let x = (center.x - gsx) as f64;
+
+    // Constants, rotation_in_rads can be reassigned once
+    let rotation_in_rads_s: f64 = y.atan2(x);
+    let rotation_in_rads_e: f64 = if rotation_in_rads_s == std::f64::consts::PI {
+        0.0
+    } else if rotation_in_rads_s == 0.0 {
+        std::f64::consts::PI
+    } else if rotation_in_rads_s > std::f64::consts::PI {
+        rotation_in_rads_s - std::f64::consts::PI
+    } else {
+        rotation_in_rads_s + std::f64::consts::PI
+    };
+
+    for box_point in n_box_arr {
+        let distance_to_center = get_distance_4p(center.x, center.y, box_point.x, box_point.y);
+        let y = (center.y - box_point.y) as f64;
+        let x = (center.x - box_point.x) as f64;
+        let angle = y.atan2(x);
+        if
+            distance_to_center < circle_radius &&
+            is_between(0.0, rotation_in_rads_s as f32, angle as f32) &&
+            is_between(0.0, rotation_in_rads_e as f32, angle as f32)
+            // Need to somehow clamp values to radian circle..
+        {
+            console_log!("point close to center and is within angle");
+            return true;
+        }
+    }
+
+    let box_sides: BoxSides = BoxSides::new(&n_box);
+    let s_side_arr: [(XY_global, XY_global); 4] = [
+        box_sides.b,
+        box_sides.r,
+        box_sides.l,
+        box_sides.t,
+    ];
+
+    let circle_quads: CircleQuadrants = CircleQuadrants {
+        center: center,
+        top: XY_global { x: center.x, y: center.y + radius },
+        bottom: XY_global { x: center.x, y: center.y - radius },
+        right: XY_global { x: center.x + radius, y: center.y },
+        left: XY_global { x: center.x - radius, y: center.y },
+    };
+    let mut circle_quad_vec = Vec::new();
+    // Check for horizontal or vertical caps. I hate this entire block of code but here we are
+    if rotation_in_rads_s == std::f64::consts::PI {
+        // Horizontal cap, positive
+        circle_quad_vec.push(circle_quads.top);
+        circle_quad_vec.push(circle_quads.right);
+        circle_quad_vec.push(circle_quads.left);
+    } else if rotation_in_rads_s == 0.0 {
+        // Horizontal cap, negative
+        circle_quad_vec.push(circle_quads.bottom);
+        circle_quad_vec.push(circle_quads.right);
+        circle_quad_vec.push(circle_quads.left);
+    } else if rotation_in_rads_s == std::f64::consts::PI / 2.0 {
+        // vertical cap, right
+        circle_quad_vec.push(circle_quads.bottom);
+        circle_quad_vec.push(circle_quads.right);
+        circle_quad_vec.push(circle_quads.top);
+    } else if rotation_in_rads_s == (3.0 * std::f64::consts::PI) / 2.0 {
+        // vertical cap, left
+        circle_quad_vec.push(circle_quads.bottom);
+        circle_quad_vec.push(circle_quads.top);
+        circle_quad_vec.push(circle_quads.left);
+    } else if is_between(0.0, (std::f64::consts::PI / 2.0) as f32, rotation_in_rads_s as f32) {
+        // Upper right to lower left
+        circle_quad_vec.push(circle_quads.right);
+        circle_quad_vec.push(circle_quads.bottom);
+    } else if
+        is_between(
+            (std::f64::consts::PI / 2.0) as f32,
+            std::f64::consts::PI as f32,
+            rotation_in_rads_s as f32
+        )
+    {
+        // Upper left to lower right
+        circle_quad_vec.push(circle_quads.right);
+        circle_quad_vec.push(circle_quads.top);
+    } else if
+        is_between(
+            std::f64::consts::PI as f32,
+            ((3.0 * std::f64::consts::PI) / 2.0) as f32,
+            rotation_in_rads_s as f32
+        )
+    {
+        //bottom left to upper right
+        circle_quad_vec.push(circle_quads.top);
+        circle_quad_vec.push(circle_quads.left);
+    } else if
+        is_between(
+            2.0 * (std::f64::consts::PI as f32),
+            ((3.0 * std::f64::consts::PI) / 2.0) as f32 as f32,
+            rotation_in_rads_s as f32
+        )
+    {
+        // bottom right to upper left
+        circle_quad_vec.push(circle_quads.bottom);
+        circle_quad_vec.push(circle_quads.left);
+    }
+
+    for box_side in s_side_arr {
+        for quad_line in &circle_quad_vec[..] {
+            if check_line_intersect((center, *quad_line), box_side) {
+                console_log!("circle quad intersecting with box");
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 fn lerp(a: f32, b: f32, x: f32) -> f32 {
     a + x * (b - a)
 }
+
 fn is_between(n1: f32, n2: f32, between: f32) -> bool {
-    if between >= n1 && between <= n2 {
+    let lower = if n1 < n2 { n1 } else { n2 };
+    let upper = if n1 < n2 { n2 } else { n1 };
+    if between >= lower && between <= upper {
         return true;
     }
     return false;
